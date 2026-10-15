@@ -221,10 +221,15 @@ cd "$HOME/atomic" && cargo install --path atomic-cli
   (copilot), `.grok` (grok), `.cline` (cline), `.kilo` (kilo), `.kiro`
   (kiro), `.devin` (devin).
 - **`agent enable` must run from inside an Atomic repository.** Run
-  `atomic init` first — a scratch repo like `/tmp/atomic-setup` is fine
-  (`mkdir -p /tmp/atomic-setup && cd /tmp/atomic-setup && atomic init`) — or
-  use the user's project. Run from a non-repo directory it fails with
-  "Not in an Atomic repository".
+  `atomic init` first — a fresh throwaway repo per run, never one reused from
+  an earlier run:
+  ```bash
+  TEST_DIR=$(mktemp -d /tmp/test-atomic.XXXXXX) && cd "$TEST_DIR" && atomic init
+  ```
+  (or use the user's project). A reused repo lets an earlier run's recorded
+  changes satisfy Phase 7's verification checks, reporting a false pass when
+  this run's recording actually failed. Run from a non-repo directory it
+  fails with "Not in an Atomic repository".
 - Enable (gated): `atomic agent enable --agent <name>` — or plain
   `atomic agent enable` for auto-detection. This pulls the agent integration
   package from Atomic storage (no account needed) and links the plugin, agent
@@ -271,6 +276,20 @@ several agents were enabled (`--all`), verify each one.
   recording actually failed. A fresh repo is also the baseline: `atomic log`
   shows only the two init changes (`Initialize repository`, `Initialize
   vault`), so any change beyond those came from this run's turn.
+- **Assert a new change was recorded (read-only, immediately after the
+  turn).** As soon as a verification run is initiated — fresh repo created
+  and the marker turn triggered — assert from inside the fresh test repo
+  that this run actually recorded something:
+  ```bash
+  atomic log -n 3   # a change beyond the two init changes; its message contains hello-
+  ```
+  The fresh repo's baseline is exactly the two init changes, so a third
+  change whose message contains this run's `hello-` marker proves this run
+  recorded. If only the two init changes appear, the run recorded nothing —
+  go straight to the repair path below / the matching subsection's
+  troubleshooting table; do **not** proceed to the success template, which
+  only confirms provenance details of a change this step must establish
+  first.
 - **Run-unique prompt marker.** The test prompt must **lead** with a marker no
   earlier run has used, e.g. `hello-$(date +%s): Create a file called …` when
   the prompt is built in a shell command. If you are typing the prompt into an
@@ -298,8 +317,9 @@ several agents were enabled (`--all`), verify each one.
   the fresh test repo with the marker prompt, then apply the success
   template below. Per-agent install behavior is in the Integration Matrix
   and Per-Agent Notes: https://docs.atomic.dev/agents/installing-agent-integrations
-- **Success template (read-only).** After the turn, from inside the test
-  repo:
+- **Success template (read-only).** Run this only after the assertion above
+  established that a new change was recorded — it confirms that change's
+  provenance details. From inside the test repo:
   ```bash
   atomic status -s                # clean — HELLO.md is already recorded
   atomic log -n 3                 # newest change's message contains hello-
@@ -518,7 +538,7 @@ troubleshooting help.
 | Hosted installer download fails | Download to a file first and inspect (`curl -sSf https://atomic.storage/install.sh -o /tmp/atomic-install.sh && bash /tmp/atomic-install.sh`), or check network/DNS; never retry `curl \| sh` blindly |
 | Rust too old (source build) | `rustup update stable` |
 | macOS linker errors | `xcode-select --install`; set `LIBRARY_PATH`/`CPATH` to brew prefix |
-| `agent enable` fails | CLI must be >= 0.12.0 — apply the stale-version rule first; must also run from inside an Atomic repository (`atomic init` a scratch repo if needed) |
+| `agent enable` fails | CLI must be >= 0.12.0 — apply the stale-version rule first; must also run from inside an Atomic repository (`atomic init` a fresh throwaway repo if needed — never reuse one from an earlier run) |
 | Registration fails | Check the server URL and network, then retry the `account` phase |
 | Verification records nothing | Walk the table in the matching Phase 7 subsection, and repair with `atomic agent enable --agent <name> -f` (force reinstall) or `atomic agent disable --agent <name>` followed by re-enable |
 | `atomic identity register https://atomic.storage` fails while the identity and network are fine — error text says the name is already registered / taken / "409" / "conflict" | Name collision — the name exists server-side bound to a different signing key | Do not retry — a retry can never succeed. Explain the collision, then offer remediation and wait for the user's choice: (1) skip registration and continue setup — the remaining phases don't require it (receipt `skipped`, `retry: atomic identity register https://atomic.storage`); (2) create a fresh local identity under a different name and register that (gated, y/n; receipt `done` with the new name); (3) clear the stale server-side registration via the server's admin/console, then retry (gated, y/n; receipt `refused` with the retry command if unresolved). Continue setup normally after the choice |
