@@ -6,6 +6,10 @@ same state in, same steps out, always in the same order. The only
 non-deterministic part is the user's answers, and the only time you improvise
 is when the user explicitly asks for troubleshooting help.
 
+The same protocol runs on every harness — opencode, Claude Code, Codex, and
+Copilot. Only the consent ask-mechanism differs; see **Harness compatibility**
+below and apply it throughout.
+
 ## Determinism contract
 
 - **Fixed phase order:** `preflight → deps → install → path → identity →
@@ -13,8 +17,10 @@ is when the user explicitly asks for troubleshooting help.
 - **Check-before-act:** before every step, run its "already done?" check.
   Skip completed steps with a one-line note — do not re-ask about them.
 - **Consent before mutation:** read-only checks run freely. Every mutating
-  command needs an explicit yes first (question tool, or plain-text numbered
-  options with end-turn-and-wait). Never mutate on silence or ambiguity.
+  command needs an explicit yes first, asked with your harness's ask
+  mechanism (opencode: `question` tool; Claude Code: `AskUserQuestion`;
+  Codex and Copilot: plain-text numbered options with end-turn-and-wait —
+  see Harness compatibility). Never mutate on silence or ambiguity.
 - **Batch inputs per phase** (e.g. identity name + email + "register with
   atomic.storage?" in one question set). Show the exact command before asking.
 - **Piped downloads:** never rely on `curl | sh` alone — without `pipefail` a
@@ -32,6 +38,45 @@ is when the user explicitly asks for troubleshooting help.
   require CLI >= **0.12.0**.
 - **Email validation:** `^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$`
 
+## Harness compatibility
+
+The same consent protocol runs on every harness — only the ask mechanism
+differs. Pick the row for the agent the user actually uses and apply it to
+every gated step below.
+
+| Harness | Ask mechanism | Skill/config location | Hooks installed by `atomic agent enable` | Integration package |
+|---------|---------------|----------------------|------------------------------------------|---------------------|
+| opencode | `question` tool | `~/.config/opencode/skills` or `.opencode/skills` | `.opencode/` plugin + skills | `atomic-opencode` |
+| Claude Code | `AskUserQuestion` tool | `~/.claude/skills` or `.claude/skills` | `.claude/` hooks (global: `~/.claude/settings.json` with `-g`) | `atomic-claude` |
+| Codex | none — plain-text fallback | `AGENTS.md` (frontmatter is ignored) | `~/.codex/hooks.json` | `atomic-codex` |
+| Copilot | none — plain-text fallback | none | `~/.copilot/hooks/atomic.json` (cloud agent: `.github/` manifest on the default branch) | `atomic-copilot` |
+
+**Package vs. agent name:** `--agent` takes the CLI name (`claude-code`,
+`codex`, `copilot`, `opencode`), **not** the integration package name
+(`atomic-claude`, ...). The package is what `atomic agent enable` syncs from
+Atomic storage behind the scenes; you pass it explicitly only with
+`--hooks <manifest-file>` or `--from <path>` (offline or development
+installs). If `--agent <name>` is rejected, the error message lists every
+valid agent.
+
+- **opencode** — native ask flow: use the `question` tool for consent,
+  batched per phase. After enabling, the user switches to the Atomic agent;
+  recording happens when a session goes idle or a turn ends.
+- **Claude Code** — use `AskUserQuestion` for consent, batching one phase's
+  inputs per call. No agent switching: hooks record automatically on every
+  session. Repo hooks land in `.claude/settings.json`; add `-g/--global` to
+  install user-level hooks in `~/.claude/settings.json` instead.
+- **Codex** — Codex reads `AGENTS.md`, not skill frontmatter, and has no ask
+  tool: consent always uses the plain-text numbered-options fallback (end
+  turn and wait). `atomic agent enable --agent codex` writes global hooks to
+  `~/.codex/hooks.json`; `--agents-md` also installs an always-on
+  `AGENTS.md` at the repository root.
+- **Copilot** — no skill system and no ask tool: same consent fallback as
+  Codex. Copilot detects via the `.github/` directory. **Limitation:** there
+  are no TurnEnd hooks — recording happens only when the session ends, so
+  turns arrive in one batch. Say this during the agent phase or the user
+  will report a false failure.
+
 ## Phases
 
 | Phase | What it does | Consent gate |
@@ -42,8 +87,8 @@ is when the user explicitly asks for troubleshooting help.
 | `path` | Add the install dir to the shell rc file | y/n |
 | `identity` | `atomic identity new <name> --email <email> --set-default` | y/n (batch name+email) |
 | `account` | `atomic identity register https://atomic.storage` + optional org/workspace/project | y/n each |
-| `agent` | `atomic agent enable [--agent <name>]` + `atomic agent status --verbose` | y/n |
-| `verify` | Prove the OpenCode plugin records turns with AI provenance | y/n (one real model turn, tiny cost) |
+| `agent` | `atomic agent enable [--agent <name>] [--all] [-g] [--agents-md]` + `atomic agent status --verbose` | y/n |
+| `verify` | Prove the agent integration records turns with AI provenance | y/n (one real model turn, tiny cost) |
 | `completions` | Completions line added to the rc file | y/n |
 
 **Stale-version rule:** if `atomic update --check` exits `1`, explain that old
@@ -172,8 +217,9 @@ cd "$HOME/atomic" && cargo install --path atomic-cli
 - Version gate: only proceed if CLI >= 0.12.0; otherwise run the
   stale-version rule first.
 - Detect an agent dir for a sensible default: `.claude` (claude-code),
-  `.cursor` (cursor), `.opencode` (opencode), `.codex` (codex), `.grok`
-  (grok), `.cline` (cline), `.kilo` (kilo), `.kiro` (kiro), `.devin` (devin).
+  `.cursor` (cursor), `.opencode` (opencode), `.codex` (codex), `.github`
+  (copilot), `.grok` (grok), `.cline` (cline), `.kilo` (kilo), `.kiro`
+  (kiro), `.devin` (devin).
 - **`agent enable` must run from inside an Atomic repository.** Run
   `atomic init` first — a scratch repo like `/tmp/atomic-setup` is fine
   (`mkdir -p /tmp/atomic-setup && cd /tmp/atomic-setup && atomic init`) — or
@@ -186,99 +232,255 @@ cd "$HOME/atomic" && cargo install --path atomic-cli
   recording hooks into your coding agent so every AI turn is captured as a
   signed change with AI provenance (model, vendor, tokens) automatically.
   The verify phase proves this mechanism.
-- Verify: `atomic agent status --verbose` — also from inside a repo.
+- Multi-agent or global options: `--all` installs for every detected agent;
+  `-g/--global` installs user-level hooks (Claude Code:
+  `~/.claude/settings.json`; Codex: `~/.codex/hooks.json`); `--agents-md`
+  installs an always-on `AGENTS.md` at the repository root (useful for
+  Codex).
+- Copilot caveat: no TurnEnd hooks — recording happens only on session end,
+  in one batch. Say so before enabling.
+- Verify: `atomic agent status --verbose` — also from inside a repo. Each
+  enabled agent's line should read `✓ <Agent> — hooks installed` (before
+  enabling it reads `○ <Agent> — detected but hooks not installed`). For
+  scripted checks use `atomic agent status --json` and assert the agent's
+  `agents[].hooks_installed` is `true`.
 
-## Phase 7 — Verify: the OpenCode plugin records provenance
+## Phase 7 — Verify: the agent integration records provenance
 
 Please refer to the [atomic-validation-skill](https://github.com/atomicdotdev/atomic-skills/tree/main/skills/setup/atomic-validation-skill.md) to verify provenance is working as intended.
 
-After enabling the OpenCode integration, prove end-to-end that turns record
+After enabling the integration, prove end-to-end that turns record
 **automatically with AI provenance** — no manual `atomic record`. One real
 model turn runs, so ask consent once for the whole phase. Role: this proves
 the whole chain end to end, meaning your identity signed a change, the
-plugin recorded it with zero manual commands, and the attestation names the
-model. In short, provenance works.
+integration recorded it with zero manual commands, and the attestation names
+the model. In short, provenance works.
 
-**1. Confirm the integration landed (read-only):**
+Run the subsection below that matches the agent enabled in Phase 6. If
+several agents were enabled (`--all`), verify each one.
 
-```bash
-atomic agent status --verbose
-test -f ~/.config/opencode/plugins/atomic-hooks.ts && echo plugin-present
-opencode --version          # note the major version: 1.x or 2.x
-command -v opencode          # must resolve; if not, PATH first
-```
+### Shared freshness rules (apply to every subsection)
 
-Version gates:
-- **OpenCode v1 must be >= 1.18.29.** Older v1 builds register the plugin
-  twice (legacy function export + object entrypoint) and double-record every
-  turn — tell the user to upgrade OpenCode before continuing.
-- **OpenCode v2** (any 2.0.x) auto-discovers `~/.config/opencode/plugins/*.ts`;
-  the v1-era `"plugin"` config key is normalized, so no extra config is needed.
-
-**2. Prepare the test project (gated):**
-
-```bash
-mkdir -p /tmp/test-atomic && cd /tmp/test-atomic && atomic init
-```
-
-**3. Trigger one real turn.** Pick the first path that applies:
-
-- **You are running inside OpenCode v2 and the current working directory is
-  an Atomic repo** (`test -d .atomic`): prepare a test project first
-  (`mkdir -p /tmp/test-atomic && cd /tmp/test-atomic && atomic init`) and
-  start the subagent's work from there — but remember the *session's*
-  directory is what the plugin gates on, so the subagent must do its file
-  work inside an Atomic repo for the change to record.
-
-- **Otherwise** (you are not OpenCode, the cwd is not an Atomic repo, or the
-  subagent turn did not record): run opencode standalone against the test
-  project — a fresh process always loads the plugin fresh:
+- **Fresh test repo per run (gated).** Always create a NEW test repo — never
+  reuse one from an earlier run:
   ```bash
-  # OpenCode v1 (no --standalone flag):
-  cd /tmp/test-atomic && opencode run --auto \
-    "Create a file called HELLO.md in the current directory containing exactly the text: hello"
-  # OpenCode v2:
-  cd /tmp/test-atomic && opencode run --standalone --auto \
-    "Create a file called HELLO.md in the current directory containing exactly the text: hello"
+  TEST_DIR=$(mktemp -d /tmp/test-atomic.XXXXXX) && cd "$TEST_DIR" && atomic init
+  ```
+  A reused directory lets an earlier run's recorded change and attestation
+  satisfy the success checks below, reporting a false pass when this run's
+  recording actually failed. A fresh repo is also the baseline: `atomic log`
+  shows only the two init changes (`Initialize repository`, `Initialize
+  vault`), so any change beyond those came from this run's turn.
+- **Run-unique prompt marker.** The test prompt must **lead** with a marker no
+  earlier run has used, e.g. `hello-$(date +%s): Create a file called …` when
+  the prompt is built in a shell command. If you are typing the prompt into an
+  interactive session instead, substitute a unique literal (e.g.
+  `hello-1719320000: Create a file called …`). The marker lands in the
+  recorded change's message, so a match can only ever come from this run's
+  turn — never from a previous run with the same prompt. It must sit at the
+  FRONT: `atomic log` and `atomic change` truncate the message to ~60
+  characters with no full-message option, so an end-placed marker is invisible
+  to the grep assertion below.
+- **Hook scope: user-level vs repo-local.** All integration hooks gate on
+  `test -d .atomic`, but where they live decides which repos they cover:
+  user-level hooks (OpenCode plugin in `~/.config/opencode/`, Codex
+  `~/.codex/hooks.json`, Copilot `~/.copilot/hooks/atomic.json`, Claude Code
+  with `-g`) apply in every repo, including the fresh test repo. Repo-local
+  Claude Code hooks (enabled **without** `-g`, written to the repo where
+  `enable` ran) do **not** carry into the fresh test repo — either run
+  `atomic agent enable --agent claude-code` once from inside the fresh test
+  repo before the turn (idempotent, uses the local package cache, works
+  offline, no account needed), or prefer `-g/--global` at enable time. If
+  you verified with repo-local hooks and plan to `disable` later, re-run
+  `enable` from the user's project first so its receipt is current.
+- **Other integrations.** For any agent beyond the four subsections below
+  (cursor, cline, kilo, grok, kiro, pi, devin, agy): run one real session in
+  the fresh test repo with the marker prompt, then apply the success
+  template below. Per-agent install behavior is in the Integration Matrix
+  and Per-Agent Notes: https://docs.atomic.dev/agents/installing-agent-integrations
+- **Success template (read-only).** After the turn, from inside the test
+  repo:
+  ```bash
+  atomic status -s                # clean — HELLO.md is already recorded
+  atomic log -n 3                 # newest change's message contains hello-
+  atomic change                   # shows an Attestation block
+  atomic agent status --verbose   # a session row for this run appears
+  ```
+  Success = the newest recorded change's message contains the `hello-`
+  marker, and its `Attestation` block names the vendor and token counts
+  (model may read `unknown` for some providers) with a session (`ses_…`)
+  created by this run — recorded with zero manual commands. Report this to
+  the user as the receipt that the integration works.
+- **If nothing recorded**, repair with
+  `atomic agent enable --agent <name> -f` (force reinstall), or remove the
+  hooks first with `atomic agent disable --agent <name>` and re-enable —
+  then rerun the turn.
+
+### 7.1 OpenCode
+
+- **Confirm the integration landed (read-only):**
+
+  ```bash
+  atomic agent status --verbose  # ✓ OpenCode — hooks installed
+  test -f ~/.config/opencode/plugins/atomic-hooks.ts && echo plugin-present
+  opencode --version          # note the major version: 1.x or 2.x
+  command -v opencode          # must resolve; if not, PATH first
   ```
 
-  `opencode run` needs a working model connection:
-  - **OpenCode v2 ships free built-in models** (listed as `opencode/*` by
-    `opencode models`) — the verification works with no login at all.
-  - **OpenCode v1 needs a provider** — if the run fails with a provider/model
-    error, have the user connect one (`opencode auth login` or a provider API
-    key), or pass a known-good `--model provider/model`, then rerun.
+  Version gates:
+  - **OpenCode v1 must be >= 1.18.29.** Older v1 builds register the plugin
+    twice (legacy function export + object entrypoint) and double-record every
+    turn — tell the user to upgrade OpenCode before continuing.
+  - **OpenCode v2** (any 2.0.x) auto-discovers `~/.config/opencode/plugins/*.ts`;
+    the v1-era `"plugin"` config key is normalized, so no extra config is needed.
 
-**4. Check the provenance (read-only):**
+- **Trigger one real turn (gated).** Prepare the fresh test repo with the
+  shared freshness rules (`TEST_DIR`, marker prompt), then pick the first
+  path that applies:
 
-```bash
-cd /tmp/test-atomic
-atomic status -s           # clean — HELLO.md is already recorded
-atomic log -n 2            # newest change's message is the test prompt
-atomic change              # shows an Attestation block
-```
+  - **You are running inside OpenCode v2 and the current working directory is
+    an Atomic repo** (`test -d .atomic`): use the fresh test repo from the
+    shared rules and start the subagent's work from there — but remember the
+    *session's* directory is what the plugin gates on, so the subagent must do
+    its file work inside an Atomic repo for the change to record.
 
-**Success** = the newest recorded change's message is the test prompt and its
-`Attestation` block names the vendor and token counts (model may read
-`unknown` for some providers) and an opencode session (`ses_…`) — recorded
-with zero manual commands. For the subagent path, also confirm
-`.atomic/sessions/ses_*.json` exists and its `turn_count` grew. Report this
-to the user as the receipt that the plugin works.
+  - **Otherwise** (you are not OpenCode, the cwd is not an Atomic repo, or the
+    subagent turn did not record): run opencode standalone against the test
+    repo — a fresh process always loads the plugin fresh:
+    ```bash
+    # OpenCode v1 (no --standalone flag):
+    cd "$TEST_DIR" && opencode run --auto \
+      "hello-$(date +%s): Create a file called HELLO.md in the current directory containing exactly the text: hello"
+    # OpenCode v2:
+    cd "$TEST_DIR" && opencode run --standalone --auto \
+      "hello-$(date +%s): Create a file called HELLO.md in the current directory containing exactly the text: hello"
+    ```
 
-**5. Troubleshoot if nothing recorded** (deterministic fixes first; only
-improvise when the user asks for troubleshooting help):
+    `opencode run` needs a working model connection:
+    - **OpenCode v2 ships free built-in models** (listed as `opencode/*` by
+      `opencode models`) — the verification works with no login at all.
+    - **OpenCode v1 needs a provider** — if the run fails with a provider/model
+      error, have the user connect one (`opencode auth login` or a provider API
+      key), or pass a known-good `--model provider/model`, then rerun.
 
-| Symptom | Diagnosis | Fix |
-|---------|-----------|-----|
-| `opencode run` fails with a provider/model error | No model connection | v1: connect a model (`opencode auth login` or provider API key) or pass `--model provider/model`; v2: pick a free built-in model (no login needed) |
-| No `.atomic/sessions/ses_*.json` after the turn | Plugin never loaded | v1: check the `"plugin"` key in `~/.config/opencode/opencode.json` (written by `atomic agent enable`); v2: confirm the file sits in `~/.config/opencode/plugins/`. Check `~/.local/share/opencode/log/opencode.log` for `loading plugin` |
-| Plugin loaded, turn ran, still nothing | Session directory is not an Atomic repo — the plugin records only sessions whose directory has `.atomic` | Re-run from inside the test project (step 3), or `atomic init` the current project |
-| `~/.config/opencode/…/.atomic/hook-errors.log` exists (in the project) | A hook shell-out failed | Read it; most common: `atomic` not on the PATH that OpenCode spawned with — restart OpenCode after the path phase, or reinstall so hooks find it |
-| `.atomic/hook-errors.log` shows `exit 143` on `stop` after a v2 `--standalone` run | Pre-fix plugin (integration < 1.1.1): `opencode run --standalone` tore down the process tree and killed the in-flight Stop recording. Fresh installs from storage already include the fix, so hitting this means an old install — or a different teardown bug | Re-run `atomic agent enable` (from a repo) to pull the fixed integration package (>= 1.1.1), confirm the plugin file changed, then rerun the turn |
-| Session file shows the turn (`turn_count` grew) but `atomic log` is empty | Rare deferred-publication race in the Atomic CLI: the change recorded but its publication to the view log was deferred | Run one more tiny turn (or any `atomic agent hooks` call) — the deferred change then publishes and both turns appear in `atomic log`. Do not re-init or delete anything |
-| Every turn recorded twice | OpenCode v1 older than 1.18.29 | Upgrade OpenCode — old v1 builds register the plugin through both export styles |
-| `opencode` was already running when the plugin was installed | Current session may predate the plugin | v2 hot-reloads; v1 needs a restart. The standalone run (step 3) sidesteps this entirely |
-| `atomic agent enable` failed | CLI < 0.12.0, or it was run outside an Atomic repository | Apply the stale-version rule; run `atomic init` (scratch repo is fine) and retry from inside it — the storage pull itself needs no account |
+- **Check:** the shared success template. For the subagent path, also confirm
+  `.atomic/sessions/ses_*.json` exists and its `turn_count` grew.
+
+- **Troubleshoot if nothing recorded** (deterministic fixes first; only
+  improvise when the user asks for troubleshooting help):
+
+  | Symptom | Diagnosis | Fix |
+  |---------|-----------|-----|
+  | `opencode run` fails with a provider/model error | No model connection | v1: connect a model (`opencode auth login` or provider API key) or pass `--model provider/model`; v2: pick a free built-in model (no login needed) |
+  | No `.atomic/sessions/ses_*.json` after the turn | Plugin never loaded | v1: check the `"plugin"` key in `~/.config/opencode/opencode.json` (written by `atomic agent enable`); v2: confirm the file sits in `~/.config/opencode/plugins/`. Check `~/.local/share/opencode/log/opencode.log` for `loading plugin` |
+  | Plugin loaded, turn ran, still nothing | Session directory is not an Atomic repo — the plugin records only sessions whose directory has `.atomic` | Re-run from inside the fresh test repo (shared freshness rules), or `atomic init` the current project |
+  | `.atomic/hook-errors.log` exists (in the project) | A hook shell-out failed | Read it; most common: `atomic` not on the PATH that OpenCode spawned with — restart OpenCode after the path phase, or reinstall so hooks find it |
+  | `.atomic/hook-errors.log` shows `exit 143` on `stop` after a v2 `--standalone` run | Pre-fix plugin (integration < 1.1.1): `opencode run --standalone` tore down the process tree and killed the in-flight Stop recording. Fresh installs from storage already include the fix, so hitting this means an old install — or a different teardown bug | Re-run `atomic agent enable` (from a repo) to pull the fixed integration package (>= 1.1.1), confirm the plugin file changed, then rerun the turn |
+  | Session file shows the turn (`turn_count` grew) but `atomic log` is empty | Rare deferred-publication race in the Atomic CLI: the change recorded but its publication to the view log was deferred | Run one more tiny turn (or any `atomic agent hooks` call) — the deferred change then publishes and both turns appear in `atomic log`. Do not re-init or delete anything |
+  | Every turn recorded twice | OpenCode v1 older than 1.18.29 | Upgrade OpenCode — old v1 builds register the plugin through both export styles |
+  | `opencode` was already running when the plugin was installed | Current session may predate the plugin | v2 hot-reloads; v1 needs a restart. The standalone run (above) sidesteps this entirely |
+
+### 7.2 Claude Code
+
+- **Confirm the integration landed (read-only):**
+  `atomic agent status --verbose` shows `✓ Claude Code — hooks installed`.
+  On disk, the hooks live in the repo's `.claude/settings.json`, or in
+  `~/.claude/settings.json` if you enabled with `-g/--global`:
+  ```bash
+  grep -l "atomic agent hooks" .claude/settings.json ~/.claude/settings.json 2>/dev/null
+  ```
+  No output means enable did not complete — repair with
+  `atomic agent enable --agent claude-code -f`.
+
+- **Trigger one real turn (gated).** Prepare the fresh test repo with the
+  shared freshness rules — including the hook-scope bullet: repo-local
+  Claude Code hooks need a second enable from inside the test repo, or
+  user-level hooks from `-g`. Start `claude` in the test repo and give it
+  the marker prompt ("Create a file called HELLO.md in the current directory
+  containing exactly the text: `<marker>`"). No agent switching — hooks
+  record automatically. If your harness cannot drive an interactive Claude
+  session, hand the command and the marker prompt to the user for their
+  terminal. End the session — Claude Code records at turn end / session end.
+
+- **Check:** the shared success template; additionally confirm the session
+  row in `atomic agent status --verbose` names Claude Code.
+
+- **Troubleshoot:**
+
+  | Symptom | Diagnosis | Fix |
+  |---------|-----------|-----|
+  | No Atomic hook entries in `.claude/settings.json` (or `~/.claude/settings.json` with `-g`) | Enable did not complete | `atomic agent enable --agent claude-code -f` |
+  | Session ran, nothing recorded, hooks present | The session was still running when you checked | End the session, then re-check — recording happens at turn end / session end |
+
+### 7.3 Codex
+
+- **Confirm the integration landed (read-only):**
+  `atomic agent status --verbose` shows `✓ Codex — hooks installed`. On
+  disk, the hooks are global:
+  ```bash
+  grep -l "atomic agent hooks" ~/.codex/hooks.json
+  ```
+  No output means enable did not complete — repair with
+  `atomic agent enable --agent codex -f`.
+
+- **Trigger one real turn (gated).** Prepare the fresh test repo with the
+  shared freshness rules. Start `codex` in the test repo and give it the
+  marker prompt, then **end the session** — Codex hooks are global, and the
+  session row appears once the session has closed. If your harness cannot
+  drive an interactive Codex session, hand the command and the marker prompt
+  to the user for their terminal. (If you installed with `--agents-md`, the
+  test repo also has an always-on `AGENTS.md` at its root.)
+
+- **Known limitation:** Codex hook support is experimental — shell-command
+  provenance may be richer than edit-tool provenance until Codex publishes
+  complete hook events. A sparse Change Ledger on the recorded change is
+  expected, not a failure.
+
+- **Check:** the shared success template.
+
+- **Troubleshoot:**
+
+  | Symptom | Diagnosis | Fix |
+  |---------|-----------|-----|
+  | No Atomic hooks in `~/.codex/hooks.json` | Enable did not complete | `atomic agent enable --agent codex -f` |
+  | Session ran, nothing recorded | The session had not closed when you checked | End the session, then re-check — the row appears only after session close |
+
+### 7.4 Copilot
+
+- **Read this first — most common false alarm:** Copilot has no TurnEnd
+  hooks — recording happens **only when the session ends**, in one batch. A
+  session that is still open shows nothing, by design; the session row
+  appears only after exit. Tell the user before the turn or they will report
+  a false failure.
+
+- **Confirm the integration landed (read-only):**
+  `atomic agent status --verbose` shows `✓ GitHub Copilot — hooks installed`.
+  On disk, the local Copilot integration installs user-level files:
+  ```bash
+  grep -l "atomic agent hooks" ~/.copilot/hooks/atomic.json
+  ```
+  No output means enable did not complete — repair with
+  `atomic agent enable --agent copilot -f`. The `.github/` directory matters
+  only for the Copilot **cloud** agent: its hook manifest must be on the
+  repository's default branch before the cloud agent starts (record and push
+  the installed files with your normal workflow).
+
+- **Trigger one real turn (gated).** Prepare the fresh test repo with the
+  shared freshness rules. Run one Copilot session in the test repo with the
+  marker prompt and **end it completely** — user-level hooks mean the fresh
+  repo needs no extra enable step.
+
+- **Check:** the shared success template. Copilot records one change per
+  session (its hook lifecycle exposes no turn-level stop event), so one
+  recorded change covering the whole session is the expected shape.
+
+- **Troubleshoot:**
+
+  | Symptom | Diagnosis | Fix |
+  |---------|-----------|-----|
+  | Nothing recorded while the session is still open | No TurnEnd hooks — by design | End the session, then re-check |
+  | No `~/.copilot/hooks/atomic.json` | Enable did not complete (local agent) | `atomic agent enable --agent copilot -f` |
+  | Cloud agent records nothing | Hook manifest not on the default branch | Record and push the installed `.github/` files to the default branch, then restart the cloud agent |
 
 ## Phase 8 — Completions
 
@@ -318,7 +520,7 @@ troubleshooting help.
 | macOS linker errors | `xcode-select --install`; set `LIBRARY_PATH`/`CPATH` to brew prefix |
 | `agent enable` fails | CLI must be >= 0.12.0 — apply the stale-version rule first; must also run from inside an Atomic repository (`atomic init` a scratch repo if needed) |
 | Registration fails | Check the server URL and network, then retry the `account` phase |
-| Verification records nothing | Walk the table in the `verify` phase (step 5) |
+| Verification records nothing | Walk the table in the matching Phase 7 subsection, and repair with `atomic agent enable --agent <name> -f` (force reinstall) or `atomic agent disable --agent <name>` followed by re-enable |
 | `atomic identity register https://atomic.storage` fails while the identity and network are fine — error text says the name is already registered / taken / "409" / "conflict" | Name collision — the name exists server-side bound to a different signing key | Do not retry — a retry can never succeed. Explain the collision, then offer remediation and wait for the user's choice: (1) skip registration and continue setup — the remaining phases don't require it (receipt `skipped`, `retry: atomic identity register https://atomic.storage`); (2) create a fresh local identity under a different name and register that (gated, y/n; receipt `done` with the new name); (3) clear the stale server-side registration via the server's admin/console, then retry (gated, y/n; receipt `refused` with the retry command if unresolved). Continue setup normally after the choice |
 
 ## Hard rules
@@ -328,9 +530,10 @@ troubleshooting help.
   skipped / declined / refused) with the exact command to run later for
   declined steps. Check it after a run to report what was skipped.
 - **Idempotency:** re-running any phase is safe; completed steps are skipped.
-- **Scope is setup plus the plugin verification** — no `atomic init` of the
-  user's real projects, no first-change walkthrough, no Git shadow hooks.
-  If the user asks, point them to https://docs.atomic.dev/ instead.
+- **Scope is setup plus the agent-integration verification** — no `atomic
+  init` of the user's real projects, no first-change walkthrough, no Git
+  shadow hooks. If the user asks, point them to https://docs.atomic.dev/
+  instead.
 - Stale installs: explain that old versions may be missing functionality
   (agent integrations need CLI >= 0.12.0 for the storage-based install flow)
   and offer the upgrade — y/n, never automatic.

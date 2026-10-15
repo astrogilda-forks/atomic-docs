@@ -11,7 +11,7 @@ This guide covers the core Atomic workflow: install, create a project, work with
 
 - Install Atomic and set up your identity with Atomic Storage  
 - Initialize a repository and record your first change  
-- Install the OpenCode plugin and direct the agent's work with intents  
+- Install an agent integration (OpenCode, Claude Code, Codex, or Copilot) and direct the agent's work with intents  
 - Verify the work and sign it  
 - Branch with views, review, and promote changes  
 - Push everything to a remote
@@ -28,7 +28,7 @@ curl -sSf https://atomic.storage/install.sh | sh
 
 For other installation methods (including building from source), see [Installing Atomic](./installation).
 
-> **Tip:** An AI agent can run this setup for you. Download the [Atomic Setup skill for agents](/atomic-setup-skill.md) and give it to your coding agent. The skill covers installation, identity setup, registration, and agent integration, and asks for confirmation before each step that changes your system.
+> **Tip:** An AI agent can run this setup for you. Download the [Atomic Setup skill for agents](/atomic-setup-skill.md) and give it to your coding agent. The skill covers installation, identity setup, registration, and agent integration, and asks for confirmation before each step that changes your system. Works with OpenCode, Claude Code, Codex, and Copilot.
 
 ## 2\. Set Up Your Identity
 
@@ -82,24 +82,69 @@ atomic record file.txt
 
 For a deeper walkthrough of the local workflow, see [Your First Repository](./first-repository).
 
-## 5\. Install the OpenCode Plugin
+## 5\. Install an Agent Integration
 
-Atomic records every agent turn automatically, with full provenance (model, tokens, cost, and a causal decision graph). Install the OpenCode plugin with one command:
+Atomic records every agent turn automatically, with full provenance (model, tokens, cost, and a causal decision graph). Pick your agent — each command installs hooks, the Atomic prompt, and the skills:
 
 ```sh
-atomic agent enable --agent opencode
-opencode   # start OpenCode and switch to the Atomic agent
+atomic agent enable --agent opencode      # plugin + skills; switch to the Atomic agent
+atomic agent enable --agent claude-code   # repo hooks; add -g for global ~/.claude/settings.json
+atomic agent enable --agent codex         # hooks in ~/.codex/hooks.json
+atomic agent enable --agent copilot       # hooks in ~/.copilot/ (cloud agent: .github/ manifest)
 ```
 
-This installs the OpenCode plugin, the Atomic agent prompt, and the Atomic skills, and registers the plugin in your OpenCode config without overwriting existing settings. In OpenCode, switch to the Atomic agent. Recording happens when a session goes idle or a turn ends.
+Each `--agent` value maps to an integration package (`opencode` → `atomic-opencode`, `claude-code` → `atomic-claude`, `codex` → `atomic-codex`, `copilot` → `atomic-copilot`). You rarely need the package name itself — it matters only for `--hooks <manifest>` or `--from <checkout>` installs.
 
-Confirm the install:
+Per-harness notes:
+
+- **OpenCode:** after enabling, start `opencode` and switch to the Atomic agent. Recording happens when a session goes idle or a turn ends.
+- **Claude Code:** no agent switching — hooks record automatically on every session. Repo hooks live in the repo where you enabled; add `-g` for user-level hooks in `~/.claude/settings.json`.
+- **Codex:** hooks are global (`~/.codex/hooks.json`). Add `--agents-md` to install an always-on `AGENTS.md` at the repository root.
+- **Copilot:** no TurnEnd hooks — recording happens only when the session ends, in one batch.
+
+### Confirm the install
 
 ```sh
 atomic agent status --verbose
 ```
 
-You can activate other agents the same way with `atomic agent enable --agent <agent name>`; it auto-detects from directories like `.claude/` or `.cursor/`. Supported agents include Claude Code, Gemini CLI, Codex, Cursor, Copilot, Cline, and more; see the [Integration Matrix](https://docs.atomic.dev/agents/installing-agent-integrations#integration-matrix).
+Each agent's line should read `✓ <Agent> — hooks installed` (before enabling it reads `○ <Agent> — detected but hooks not installed`).
+
+### Prove a turn records
+
+A session row alone doesn't prove recording works — a stale session or an
+earlier run's change can satisfy it. Run this once per integration, in a
+fresh throwaway repo each time:
+
+```sh
+TEST_DIR=$(mktemp -d /tmp/test-atomic.XXXXXX) && cd "$TEST_DIR" && atomic init
+```
+
+A fresh repo starts with only the two init changes (`Initialize repository`,
+`Initialize vault`), so any change beyond them came from this run. **Lead** the
+test prompt with a marker no earlier run has used, e.g.
+`hello-$(date +%s): Create a file called …` — the marker lands in the recorded
+change's message, and because `atomic log` truncates messages, the marker must
+be at the front to stay visible in the log output.
+
+Trigger one real turn, per harness:
+
+- **OpenCode:** `cd "$TEST_DIR" && opencode run --auto "hello-$(date +%s): Create a file called HELLO.md in the current directory containing exactly the text: hello"` (OpenCode v2: add `--standalone`), or start `opencode` in the test repo and switch to the Atomic agent.
+- **Claude Code:** start `claude` in the test repo with the marker prompt, then end the session. Repo-local hooks (enabled without `-g`) do not carry into the test repo — run `atomic agent enable --agent claude-code` once inside it first, or enable with `-g`.
+- **Codex:** start `codex` in the test repo with the marker prompt, then end the session — the session row appears only after close.
+- **Copilot:** run a Copilot session in the test repo and **end it completely** — recording arrives only at session end, in one batch (the most common "it's not working" false alarm).
+
+Then assert a new change (from inside `$TEST_DIR`):
+
+```sh
+atomic log -n 3                 # newest change's message contains hello-
+atomic change                   # shows the Attestation block (model, tokens)
+atomic agent status --verbose   # a session row for this run appears
+```
+
+**If nothing recorded:** repair with `atomic agent enable --agent <name> -f` (force reinstall), or remove hooks first with `atomic agent disable --agent <name>` and re-enable. The full per-agent procedure with troubleshooting tables is in the [Atomic Setup skill](/atomic-setup-skill.md) (Phase 7).
+
+You can activate other agents the same way; auto-detection works from directories like `.claude/`, `.opencode/`, `.codex/`, or `.github/`. Supported agents include Claude Code, Gemini CLI, Codex, Cursor, Copilot, Cline, and more; see the [Integration Matrix](https://docs.atomic.dev/agents/installing-agent-integrations#integration-matrix). Any other integration verifies the same way: one marker-prompt session in a fresh test repo, then the same three-command assertion.
 
 ## 6\. Turn a Prompt into an Intent
 
@@ -274,10 +319,9 @@ atomic status && atomic diff
 atomic record -m "Initial commit"
 atomic log
 
-# Install the OpenCode plugin
-atomic agent enable --agent opencode
-opencode
-atomic agent status --verbose
+# Install an agent integration
+atomic agent enable --agent <opencode|claude-code|codex|copilot>
+atomic agent status --verbose   # expect: ✓ <Agent> — hooks installed
 
 # Intent: prompt -> criterion -> task -> file
 atomic intent list
