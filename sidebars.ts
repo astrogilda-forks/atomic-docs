@@ -30,8 +30,13 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "doc",
-      id: "getting-started/git-shadow-sync",
-      label: "Git Shadow",
+      id: "getting-started/git-shim",
+      label: "Git Shim",
+    },
+    {
+      type: "doc",
+      id: "getting-started/git-import-push",
+      label: "Git Import & Push",
     },
     "getting-started/train-tracks-demo",
     {

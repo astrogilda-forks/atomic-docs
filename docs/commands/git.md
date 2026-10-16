@@ -21,8 +21,8 @@ atomic git hooks <SUBCOMMAND>
 `atomic git` bridges Atomic and Git repositories in two directions:
 
 - **`git import`** — bring an existing Git repository **into** Atomic: each Git commit becomes an Atomic change, preserving history. Run it inside a Git checkout to create the Atomic repository alongside.
-- **`git push`** — push Atomic's state **out** to Git as a regular commit, enabling **Git shadow sync**: your Atomic work appears on the Git remote (e.g. GitHub) without Git ever being the system of record.
-- **`git hooks`** — install or remove Git hooks that keep the two in sync automatically.
+- **`git push`** — push Atomic's state **out** to Git as a regular commit, so your Atomic work appears on the Git remote (e.g. GitHub) without Git ever being the system of record.
+- **`git hooks`** — install or remove Atomic's advisory Git hook dispatchers (evidence journaling and verification — they never block Git operations; see the [Git Shim](/getting-started/git-shim)).
 
 ## Subcommands
 
@@ -82,7 +82,7 @@ Synthesizes a Git commit from the current Atomic view's state (message synthesiz
 | `--no-push` | Don't push to remote after committing |
 | `--remote <REMOTE>` | Remote name to push to (default: `origin`) |
 | `-b, --branch <BRANCH>` | Target branch to push to on the remote. Defaults to the current branch. The commit is still created on the current branch; this only changes the remote destination (useful for pushing the current view's state to a PR branch) |
-| `--allow-conflict-markers` | Commit even if the working copy still contains unresolved conflict markers. Off by default, mirroring `atomic record`; the shadow-sync turn-end hook must never pass this |
+| `--allow-conflict-markers` | Commit even if the working copy still contains unresolved conflict markers. Off by default, mirroring `atomic record`; verified workflows should never publish markers |
 
 #### Examples
 
@@ -97,7 +97,7 @@ atomic git push -b feature/token-refresh
 atomic git push --no-push -m "sync checkpoint"
 ```
 
-### `git hooks` — Manage Sync Hooks
+### `git hooks` — Manage Hook Dispatchers
 
 #### Synopsis
 
@@ -109,9 +109,9 @@ atomic git hooks <SUBCOMMAND>
 
 | Subcommand | Description |
 |------------|-------------|
-| `install` | Install Git hooks for automatic sync |
-| `uninstall` | Remove Atomic's Git hooks |
-| `status` | Show the current hook status |
+| `install` | Install or refresh Atomic's advisory Git hook dispatchers (migrates legacy import-sync hooks automatically) |
+| `uninstall` | Remove Atomic's post-checkout hook (other dispatchers are removed with the shim integration) |
+| `status` | Show which hooks are installed and owned by Atomic |
 
 ```bash
 atomic git hooks install
@@ -123,5 +123,5 @@ atomic git hooks uninstall
 
 - [pull](pull.md) / [push](push.md) — Atomic-native remote sync
 - [clone](clone.md) — Clone a remote Atomic repository
-- [Git Shadow Sync guide](/getting-started/git-shadow-sync) — Full shadow-sync walkthrough
+- [Git Shim guide](/getting-started/git-shim) — Verified Git interop walkthrough
 - [migrating-from-git guide](/getting-started/migrating-from-git) — Import walkthrough

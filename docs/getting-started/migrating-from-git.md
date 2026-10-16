@@ -213,7 +213,7 @@ git log --graph --all
 
 # Atomic
 atomic log
-atomic log --limit 10
+atomic log -n 10
 atomic log --state  # Shows state hashes (Merkle trees)
 ```
 
@@ -325,15 +325,19 @@ cd your-git-repo
 atomic git import
 
 # Verify import
-atomic log --limit 10
+atomic log -n 10
 atomic view list
 ```
 
-### Import Specific Paths
+### Import a Repo in a Different Location
 
 ```bash
-# Import Git repo from different location
-atomic git import /path/to/git/repo /path/to/atomic/repo
+# Import a Git repo from another directory into a new Atomic repo
+cd /path/to/git/repo
+atomic git import
+
+# Or pick the branch to import
+atomic git import --branch main --no-vault
 ```
 
 ### What Gets Imported
@@ -350,7 +354,7 @@ atomic git import /path/to/git/repo /path/to/atomic/repo
 - Git-specific metadata
 - Merge commit structure (converted to changes)
 - Submodules (requires manual handling)
-- Git hooks (reimplement in Atomic)
+- Git hooks (Atomic has its own integration — see the [Git Shim](./git-shim))
 
 ### Post-Import Steps
 
@@ -358,7 +362,7 @@ After importing:
 
 ```bash
 # 1. Verify the import
-atomic log --limit 20
+atomic log -n 20
 atomic view list
 
 # 2. Create a consolidating tag for better performance
@@ -669,10 +673,11 @@ atomic restore --force
 ## Next Steps
 
 1. **Import your Git repository**: `atomic git import`
-2. **Create your first change**: `atomic record -m "First Atomic change"`
-3. **Explore AI attribution**: `atomic record --ai-assisted`
-4. **Create consolidating tags**: `atomic tag create v1.0.0`
-5. **Experience conflict-free merging**: Try parallel development!
+2. **Keep working with Git and GitHub?** Set up the [Git Shim](./git-shim) for verified two-way sync
+3. **Create your first change**: `atomic record -m "First Atomic change"`
+4. **Explore AI attribution**: `atomic record --ai-assisted`
+5. **Create consolidating tags**: `atomic tag create v1.0.0`
+6. **Experience conflict-free merging**: Try parallel development!
 
 ## Why Switch from Git?
 
