@@ -249,6 +249,8 @@ These ordinary Git actions are handled (fixed in atomicdotdev/atomic#281):
 - `git push origin <other-branch>` / `git push --all` for reconciled branches.
 - `atomic git import` refuses to materialize a branch that is not checked out over uncommitted edits or untracked files it would overwrite.
 - `atomic git shim switch <view>` refuses a branch whose tip the view has not imported (reconcile the branch first) instead of silently reverting those commits.
+- Repositories whose tree holds symlinks (the `.claude/skills/<name>` layout) switch and reconcile normally.
+- **Repositories imported with a build before this change must be re-imported**: the old importer tracked paths with spaces or non-ASCII characters under escaped names, which the fixed build reports as deleted plus untracked. Remove `.atomic` and import again.
 
 ## Known limits
 
