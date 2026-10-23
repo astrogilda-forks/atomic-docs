@@ -236,9 +236,27 @@ Never delete `.atomic/`, `.vault/`, shelves, or Git objects to "fix" a shim fail
 
 Shim events are also appended to `.atomic/bridge/events.jsonl` (capped at 4 MiB). It's diagnostic telemetry — not fsynced, and never a substitute for the durable operation journal.
 
+## Day-to-day Git usage
+
+These ordinary Git actions are handled (fixed in atomicdotdev/atomic#281):
+
+- Creating a branch from an imported tip and committing there, then reconciling; fast-forward and `--no-ff` merges back.
+- Untracked files, gitignored or not (`node_modules/`, `target/`, `.DS_Store`, scratch files): `reconcile` and `verify` ignore them.
+- Paths with spaces or non-ASCII characters (a literal `%` in a file name is still unsupported).
+- `git checkout <sha>` / `git bisect` on an imported commit, then back to the branch.
+- `git reset --hard` (or a rebase / force-pull) onto an imported ancestor: the view rewinds on the next `reconcile`.
+- A stale `.git/REBASE_HEAD` after an interactive rebase no longer blocks commands.
+- `git push origin <other-branch>` / `git push --all` for reconciled branches.
+- `atomic git import` refuses to materialize a branch that is not checked out over uncommitted edits or untracked files it would overwrite.
+- `atomic git shim switch <view>` refuses a branch whose tip the view has not imported (reconcile the branch first) instead of silently reverting those commits.
+
 ## Known limits
 
-- Creating a new Git branch and committing there after Atomic records a rename can make `reconcile` fail with `view '<branch>' not found`. Check `atomic git shim status` for the affected view and remediation.
+- An `atomic record` that deletes lines from a file already in Git history makes every later `git commit` on that branch fail to reconcile (`staged semantic closure ... must regenerate the commit tree`). Records that only add lines, or replace a whole single-line file, are fine. Until this is fixed, make deletions through Git, or recover with `git reset --hard HEAD~1` back to the projection commit.
+- Linked `git worktree`s cannot reconcile yet (`Repository already exists`).
+- Keep `.atomicignore` out of Git: a tracked `.atomicignore` makes `verify`/`reconcile` report `GitIndex/ExclusionPolicy`.
+- Interrupting an import between a change write and its Git SHA index write can leave that commit unable to re-import; the recovery is a fresh import.
+- Performance: `atomic record` and `reconcile` take minutes on repositories with a few hundred changes, the first `reconcile` of a newly created branch can take much longer, and importing a thousand-commit history takes about an hour.
 - `atomic git shim enable --adopt-git` (adopting a foreign Git state without an Atomic-origin projection) is not yet available.
 - `atomic status --git` covers a supported subset of Git porcelain semantics, not all of it.
 - Local hooks prove nothing about a remote that accepts unchecked pushes — deploy `verify-receive` where provenance must be enforced.

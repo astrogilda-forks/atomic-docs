@@ -62,6 +62,12 @@ atomic view list
 git log --oneline -5
 ```
 
+### What import refuses
+
+`atomic git import` never writes over work Git has not recorded. Importing a branch that is not checked out (a detached HEAD, or `-b <other>`) materializes that branch into the worktree, so it refuses when there are tracked edits or untracked files the branch tree would overwrite; commit, stash or move them first, or check the branch out.
+
+File names with spaces or non-ASCII characters import under their on-disk names. A literal `%` in a file name is not supported yet.
+
 ### Incremental imports
 
 After new commits land in Git, `--incremental` brings Atomic up to date:
