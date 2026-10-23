@@ -252,7 +252,7 @@ These ordinary Git actions are handled (fixed in atomicdotdev/atomic#281):
 
 ## Known limits
 
-- An `atomic record` that deletes lines from a file already in Git history makes every later `git commit` on that branch fail to reconcile (`staged semantic closure ... must regenerate the commit tree`). Records that only add lines, or replace a whole single-line file, are fine. Until this is fixed, make deletions through Git, or recover with `git reset --hard HEAD~1` back to the projection commit.
+- An `atomic record` that deletes lines from a file already in Git history makes every later `git commit` on that branch fail to reconcile (`staged semantic closure ... must regenerate the commit tree`). Records that only add lines, or replace a whole single-line file, are fine. The cause is the WIP evidence snapshot taken at the record boundary, whose semantic ops land in the repository-wide CRDT tables (tracked in atomicdotdev/atomic#281). Until this is fixed, make deletions through Git, or recover with `git reset --hard HEAD~1` back to the projection commit.
 - Linked `git worktree`s cannot reconcile yet (`Repository already exists`).
 - Keep `.atomicignore` out of Git: a tracked `.atomicignore` makes `verify`/`reconcile` report `GitIndex/ExclusionPolicy`.
 - Interrupting an import between a change write and its Git SHA index write can leave that commit unable to re-import; the recovery is a fresh import.
