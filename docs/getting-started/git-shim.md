@@ -140,6 +140,8 @@ What they **don't** do:
 
 Atomic only writes a hook file when it is missing or already an exact Atomic-owned dispatcher. Anything else — custom hooks, symlinks, foreign scripts — is reported and left byte-for-byte untouched.
 
+Inside a linked `git worktree` (`git worktree add`) the dispatchers pass through with one advisory line and record nothing; see [Known limits](#known-limits).
+
 ## Verifiable identity: bindings
 
 Git history alone can't prove that two commits represent the same change — squash merges and rebases rewrite history. **Bindings** close that gap: signed, immutable records of "Git state X corresponds exactly to Atomic state Y."
@@ -219,7 +221,7 @@ A known limit: a `record` can save its Atomic change and then fail with `git-bri
 atomic git shim disable
 ```
 
-`disable` records `[git.shim] enabled = false` and stops automatic shim telemetry. Installed hooks and existing checkpoints remain in place; a previously anchored workspace still checks for a stale baseline. Run `atomic git shim enable` again to re-enroll. (`atomic git hooks uninstall` currently removes only the post-checkout hook; remove the other dispatchers separately when decommissioning.)
+`disable` records `[git.shim] enabled = false`, stops automatic shim telemetry, and removes every Atomic-owned hook dispatcher that `enable` installed (post-checkout, pre-commit, pre-push, post-rewrite, reference-transaction) — so a plain `git push` is never refused by a shim you opted out of. Existing checkpoints remain in place; a previously anchored workspace still checks for a stale baseline. Run `atomic git shim enable` again to re-enroll. `atomic git hooks uninstall` removes the same dispatchers without changing the consent flag; both leave custom hooks, symlinks, and `core.hooksPath` setups untouched and report what they kept.
 
 Operations that move refs journal their plans and outcomes. Inspect and undo them:
 
@@ -250,15 +252,16 @@ These ordinary Git actions are handled (fixed in atomicdotdev/atomic#281):
 - `atomic git import` refuses to materialize a branch that is not checked out over uncommitted edits or untracked files it would overwrite.
 - `atomic git shim switch <view>` refuses a branch whose tip the view has not imported (reconcile the branch first) instead of silently reverting those commits.
 - Repositories whose tree holds symlinks (the `.claude/skills/<name>` layout) switch and reconcile normally.
+- A native `atomic record` that deletes or rewrites lines in a file Git already holds keeps every later `git commit` reconcilable.
+- A new branch's first `reconcile` imports only the commits above the nearest already-interpreted ancestor (`Seeded view 'topic' from interpreted ancestor ...`) instead of replaying the whole history, and an incremental commit's staged check replays the semantic closure only for the paths it touches.
 - **Repositories imported with a build before this change must be re-imported**: the old importer tracked paths with spaces or non-ASCII characters under escaped names, which the fixed build reports as deleted plus untracked. Remove `.atomic` and import again.
 
 ## Known limits
 
-- An `atomic record` that deletes lines from a file already in Git history makes every later `git commit` on that branch fail to reconcile (`staged semantic closure ... must regenerate the commit tree`). Records that only add lines, or replace a whole single-line file, are fine. The cause is the WIP evidence snapshot taken at the record boundary, whose semantic ops land in the repository-wide CRDT tables (tracked in atomicdotdev/atomic#281). Until this is fixed, make deletions through Git, or recover with `git reset --hard HEAD~1` back to the projection commit.
-- Linked `git worktree`s cannot reconcile yet (`Repository already exists`).
+- Linked `git worktree`s are not managed by the shim yet. Atomic's hooks pass through there with one advisory line (`Atomic shim: linked worktree '...' is not managed; hooks pass through`), so `git commit` and `git push` work normally, and `atomic status` / `atomic git shim reconcile` refuse with `linked git worktrees are not supported by the shim yet; run from the main worktree '<path>'` instead of creating a second repository.
 - Keep `.atomicignore` out of Git: a tracked `.atomicignore` makes `verify`/`reconcile` report `GitIndex/ExclusionPolicy`.
 - Interrupting an import between a change write and its Git SHA index write can leave that commit unable to re-import; the recovery is a fresh import.
-- Performance: `atomic record` and `reconcile` take minutes on repositories with a few hundred changes, the first `reconcile` of a newly created branch can take much longer, and importing a thousand-commit history takes about an hour.
+- Performance: `atomic record` and `reconcile` still take minutes on repositories with a few hundred files, and importing a thousand-commit history takes hours.
 - `atomic git shim enable --adopt-git` (adopting a foreign Git state without an Atomic-origin projection) is not yet available.
 - `atomic status --git` covers a supported subset of Git porcelain semantics, not all of it.
 - Local hooks prove nothing about a remote that accepts unchecked pushes — deploy `verify-receive` where provenance must be enforced.
