@@ -254,6 +254,9 @@ These ordinary Git actions are handled (fixed in atomicdotdev/atomic#281):
 - Repositories whose tree holds symlinks (the `.claude/skills/<name>` layout) switch and reconcile normally.
 - A native `atomic record` that deletes or rewrites lines in a file Git already holds keeps every later `git commit` reconcilable. The same holds for a native rename (`mv` plus `atomic record -a`) of a file whose last line has no newline.
 - `atomic git shim switch` handles a directory that later became a symlink (the `.claude/commands -> ../.agents/commands` agents layout).
+- Deleting a branch whose view was adopted (`git switch -c topic`, `git switch main`, `git branch -D topic`) retires its ref mapping instead of refusing every later reconcile; a renamed branch (`git branch -m`) still refuses with the explicit remediation.
+- A branch created after a no-ff merge is seeded from the source view's own log, so the merged line renders once.
+- An edit of a file whose graph vertices no longer line up with its lines (seen on pallets/markupsafe after a maintenance-branch merge) is recorded as a whole-file rewrite in both layers instead of losing content; the import used to refuse at that commit.
 - A new branch's first `reconcile` imports only the commits above the nearest already-interpreted ancestor (`Seeded view 'topic' from interpreted ancestor ...`) instead of replaying the whole history, and an incremental commit's staged check replays the semantic closure only for the paths it touches.
 - **Repositories imported with a build before this change must be re-imported**: the old importer tracked paths with spaces or non-ASCII characters under escaped names, which the fixed build reports as deleted plus untracked. Remove `.atomic` and import again.
 
