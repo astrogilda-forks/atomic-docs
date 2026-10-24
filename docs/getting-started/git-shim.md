@@ -252,13 +252,14 @@ These ordinary Git actions are handled (fixed in atomicdotdev/atomic#281):
 - `atomic git import` refuses to materialize a branch that is not checked out over uncommitted edits or untracked files it would overwrite.
 - `atomic git shim switch <view>` refuses a branch whose tip the view has not imported (reconcile the branch first) instead of silently reverting those commits.
 - Repositories whose tree holds symlinks (the `.claude/skills/<name>` layout) switch and reconcile normally.
-- A native `atomic record` that deletes or rewrites lines in a file Git already holds keeps every later `git commit` reconcilable.
+- A native `atomic record` that deletes or rewrites lines in a file Git already holds keeps every later `git commit` reconcilable. The same holds for a native rename (`mv` plus `atomic record -a`) of a file whose last line has no newline.
+- `atomic git shim switch` handles a directory that later became a symlink (the `.claude/commands -> ../.agents/commands` agents layout).
 - A new branch's first `reconcile` imports only the commits above the nearest already-interpreted ancestor (`Seeded view 'topic' from interpreted ancestor ...`) instead of replaying the whole history, and an incremental commit's staged check replays the semantic closure only for the paths it touches.
 - **Repositories imported with a build before this change must be re-imported**: the old importer tracked paths with spaces or non-ASCII characters under escaped names, which the fixed build reports as deleted plus untracked. Remove `.atomic` and import again.
 
 ## Known limits
 
-- Linked `git worktree`s are not managed by the shim yet. Atomic's hooks pass through there with one advisory line (`Atomic shim: linked worktree '...' is not managed; hooks pass through`), so `git commit` and `git push` work normally, and `atomic status` / `atomic git shim reconcile` refuse with `linked git worktrees are not supported by the shim yet; run from the main worktree '<path>'` instead of creating a second repository.
+- Linked `git worktree`s are not managed by the shim yet. In a worktree that was never registered with the repository (plain `git worktree add`, no `.atomic/repository` pointer) Atomic's hooks pass through with one advisory line (`Atomic shim: linked worktree '...' is not managed; hooks pass through`), so `git commit` and `git push` work normally, and `atomic status` / `atomic git shim reconcile` refuse with `linked git worktrees are not supported by the shim yet; run from the main worktree '<path>'` instead of creating a second repository there.
 - Keep `.atomicignore` out of Git: a tracked `.atomicignore` makes `verify`/`reconcile` report `GitIndex/ExclusionPolicy`.
 - Interrupting an import between a change write and its Git SHA index write can leave that commit unable to re-import; the recovery is a fresh import.
 - Performance: `atomic record` and `reconcile` still take minutes on repositories with a few hundred files, and importing a thousand-commit history takes hours.
