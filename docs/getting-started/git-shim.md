@@ -262,6 +262,11 @@ These ordinary Git actions are handled (fixed in atomicdotdev/atomic#281):
 - An empty lockfile or checksum file (`package-lock.json`, `Cargo.lock`, `go.sum`) that later gains content, or one truncated and regenerated, imports and reconciles; the staged semantic closure used to render it as zero bytes.
 - `atomic record` of a moved directory whose first entry is an empty file next to a non-empty sibling (a Python package with an empty `__init__.py`) applies instead of failing with `ambiguous source ... for prior FOLDER edge`.
 - Deleting a file that an earlier commit truncated to zero bytes beside a wholesale-rewritten neighbour (stretchr/objx: `go.sum` next to `map_test.go`) imports and records cleanly; the truncation no longer leaves a zero-length vertex that the deletion mistook for the neighbour's first line.
+- A commit that moves a file into a subdirectory while a symlink to it takes the old path (srid/emanote: `README.md -> emanote/README.md`), and a symlink replaced by the file it pointed to, import; the importer used to refuse with `prospective import tree mismatch`.
+- A repository whose committed tree already contains conflict markers (a `Cargo.lock` merged by hand upstream) records through the shim; markers Git HEAD already holds at the same path no longer refuse every later record. A record that writes new markers is still refused.
+- Importing a history with a large tree (hundreds of MB of committed binaries) no longer needs a copy of the whole tree per commit in memory.
+- `git mv` of the last file out of a directory leaves the emptied directory on disk; it no longer shows up as a `new dir` that blocks `reconcile` and `verify` (an empty directory you do mean to track is added with `atomic add --directory <path>`).
+- A CRLF file committed before the repository adopted `* text=auto eol=lf` imports and stays clean in `atomic status`; the importer used to refuse it and status reported it modified forever.
 - **Repositories imported with a build before this change must be re-imported**: the old importer tracked paths with spaces or non-ASCII characters under escaped names, which the fixed build reports as deleted plus untracked. Remove `.atomic` and import again.
 
 ## Known limits
