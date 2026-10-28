@@ -343,17 +343,18 @@ atomic git import --branch main --no-vault
 ### What Gets Imported
 
 ✅ **Imported:**
-- All commits as Atomic changes
+- Every first-parent commit on the imported branch as an Atomic change (the rolling stream; `--no-stream` or `--with-crdt` selects the ordinary importer)
 - Commit messages and descriptions
 - Author information and timestamps
-- Branch structure (as views)
+- Branch structure (as views) — every local branch with `--all`
 - Tags (as Atomic tags)
 - File history
 
 ❌ **Not Imported:**
 - Git-specific metadata
 - Merge commit structure (converted to changes)
-- Submodules (requires manual handling)
+- Inner commits from merged PRs (first-parent history only; `--all` includes them)
+- Submodule history (the gitlink entry is preserved with its commit ID; the submodule needs its own import)
 - Git hooks (Atomic has its own integration — see the [Git Shim](./git-shim))
 
 ### Post-Import Steps
