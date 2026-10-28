@@ -244,7 +244,7 @@ These ordinary Git actions are handled (fixed in atomicdotdev/atomic#281):
 
 - Creating a branch from an imported tip and committing there, then reconciling; fast-forward and `--no-ff` merges back.
 - Untracked files, gitignored or not (`node_modules/`, `target/`, `.DS_Store`, scratch files): `reconcile` and `verify` ignore them.
-- Paths with spaces or non-ASCII characters (a literal `%` in a file name is still unsupported).
+- Paths with spaces, Unicode or raw non-UTF-8 bytes are tracked under their on-disk spelling; a name containing a literal `%` keeps its reversible escaped identity, so `a%41.txt` and `aA.txt` stay distinct.
 - `git checkout <sha>` / `git bisect` on an imported commit, then back to the branch.
 - `git reset --hard` (or a rebase / force-pull) onto an imported ancestor: the view rewinds on the next `reconcile`.
 - A stale `.git/REBASE_HEAD` after an interactive rebase no longer blocks commands.
@@ -265,6 +265,7 @@ These ordinary Git actions are handled (fixed in atomicdotdev/atomic#281):
 - A commit that moves a file into a subdirectory while a symlink to it takes the old path (srid/emanote: `README.md -> emanote/README.md`), and a symlink replaced by the file it pointed to, import; the importer used to refuse with `prospective import tree mismatch`.
 - A repository whose committed tree already contains conflict markers (a `Cargo.lock` merged by hand upstream) records through the shim; markers Git HEAD already holds at the same path no longer refuse every later record. A record that writes new markers is still refused.
 - Importing a history with a large tree (hundreds of MB of committed binaries) no longer needs a copy of the whole tree per commit in memory.
+- A first import into a fresh repository runs the rolling stream — first-parent, graph-only changes, live dashboard — instead of the ordinary importer; `--no-stream` selects the ordinary importer. See [Git Import and Push](./git-import-push#the-rolling-stream-default-for-fresh-imports).
 - `git mv` of the last file out of a directory leaves the emptied directory on disk; it no longer shows up as a `new dir` that blocks `reconcile` and `verify` (an empty directory you do mean to track is added with `atomic add --directory <path>`).
 - A CRLF file committed before the repository adopted `* text=auto eol=lf` imports and stays clean in `atomic status`; the importer used to refuse it and status reported it modified forever.
 - **Repositories imported with a build before this change must be re-imported**: the old importer tracked paths with spaces or non-ASCII characters under escaped names, which the fixed build reports as deleted plus untracked. Remove `.atomic` and import again.
@@ -275,7 +276,7 @@ These ordinary Git actions are handled (fixed in atomicdotdev/atomic#281):
 - A native `atomic record -a` of a moved directory that directly follows another native record (no `atomic status` in between) can refuse with `unresolved path claims: <new directory>, ...`; run `atomic status` first, or move with `git mv` + `git commit` + `atomic git shim reconcile`.
 - Keep `.atomicignore` out of Git: a tracked `.atomicignore` makes `verify`/`reconcile` report `GitIndex/ExclusionPolicy`.
 - Interrupting an import between a change write and its Git SHA index write can leave that commit unable to re-import; the recovery is a fresh import.
-- Performance: `atomic record` and `reconcile` still take minutes on repositories with a few hundred files, and importing a thousand-commit history takes hours.
+- Performance: `atomic record` and `reconcile` still take minutes on repositories with a few hundred files. A fresh import now runs the rolling stream (see [Git Import and Push](./git-import-push#the-rolling-stream-default-for-fresh-imports)); the ordinary importer behind `--no-stream`, `--with-crdt`, `--all`, and `--incremental` still takes hours on a thousand-commit history.
 - `atomic git shim enable --adopt-git` (adopting a foreign Git state without an Atomic-origin projection) is not yet available.
 - `atomic status --git` covers a supported subset of Git porcelain semantics, not all of it.
 - Local hooks prove nothing about a remote that accepts unchecked pushes — deploy `verify-receive` where provenance must be enforced.
