@@ -62,6 +62,12 @@ atomic view list
 git log --oneline -5
 ```
 
+### What import refuses
+
+`atomic git import` never writes over work Git has not recorded. Importing a branch that is not checked out (a detached HEAD, or `-b <other>`) materializes that branch into the worktree, so it refuses when there are tracked edits or untracked files the branch tree would overwrite; commit, stash or move them first, or check the branch out.
+
+File names with spaces or non-ASCII characters import under their on-disk names. A literal `%` in a file name is not supported yet.
+
 ### Incremental imports
 
 After new commits land in Git, `--incremental` brings Atomic up to date:
@@ -211,7 +217,7 @@ The hooks subcommands manage the Atomic-owned advisory Git hook dispatchers — 
 ```bash
 atomic git hooks install     # install/refresh the advisory dispatchers
 atomic git hooks status      # show which hooks are installed and owned
-atomic git hooks uninstall   # remove Atomic's post-checkout hook
+atomic git hooks uninstall   # remove every Atomic-owned dispatcher (foreign hooks are kept)
 ```
 
 What the dispatchers do has changed from earlier releases: they no longer run `atomic git import --incremental` automatically. They now journal advisory evidence for the Git shim (checkout, commit-time captures, rewrites, ref movements) and perform local advisory verification — they never block a Git operation and never change your history. See [the shim documentation](./git-shim#hooks-are-advisory) for the full list and semantics.
@@ -219,7 +225,7 @@ What the dispatchers do has changed from earlier releases: they no longer run `a
 Atomic only writes a hook file when it is missing or already an exact Atomic-owned dispatcher; foreign hooks and custom `core.hooksPath` setups are reported and left untouched. Legacy import-sync hooks from earlier releases are migrated automatically when the integration is installed.
 
 :::note
-`atomic git hooks uninstall` currently removes only the post-checkout hook. Remove the other dispatchers separately if you're fully decommissioning the integration.
+`atomic git hooks uninstall` removes every Atomic-owned dispatcher (post-checkout, pre-commit, pre-push, post-rewrite, reference-transaction) and any Atomic-only legacy import hook, reporting each one removed or kept. `atomic git shim disable` runs the same removal after recording the opt-out, so disabling the shim is the full inverse of enabling it.
 :::
 
 ## Troubleshooting
